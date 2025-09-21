@@ -13,9 +13,11 @@ import {
     UnsupportedVersion,
 } from './exceptions.js'
 import AdmZip from 'adm-zip';
+import * as yauzl from 'yauzl';
 import * as yaml from 'js-yaml';
 import ProgressBar from 'progress';
 import { Writable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { setTimeout } from 'timers/promises';
 
 const ARCH_MAP: { [key: string]: string } = {
@@ -221,6 +223,11 @@ export class CamoufoxFetcher extends GitHubDownloader {
     }
 
     async extractZip(zipFile: string | Buffer): Promise<void> {
+        if (typeof zipFile === 'string') {
+            await extractZipStream(zipFile, INSTALL_DIR.toString());
+            return;
+        }
+
         const zip = new AdmZip(zipFile);
         zip.extractAllTo(INSTALL_DIR.toString(), true);
     }
@@ -429,4 +436,79 @@ export function loadYaml(file: string): { [key: string]: any } {
     }
     const fileContents = fs.readFileSync(filePath, 'utf8');
     return yaml.load(fileContents) as { [key: string]: any };
+}
+
+
+
+
+async function extractZipStream(zipFilePath: string, extractTo: string): Promise<void> {
+    const destinationRoot = path.resolve(extractTo);
+    await fs.promises.mkdir(destinationRoot, { recursive: true });
+
+    await new Promise<void>((resolve, reject) => {
+        yauzl.open(zipFilePath, { lazyEntries: true }, (openError, zipfile) => {
+            if (openError || !zipfile) {
+                reject(openError ?? new Error('Unable to open zip archive'));
+                return;
+            }
+
+            const closeAndReject = (error: Error) => {
+                zipfile.close();
+                reject(error);
+            };
+
+            zipfile.on('error', closeAndReject);
+            zipfile.on('end', () => {
+                zipfile.close();
+                resolve();
+            });
+
+            const readNextEntry = () => zipfile.readEntry();
+            readNextEntry();
+
+            zipfile.on('entry', (entry) => {
+                const normalizedName = entry.fileName.replace(/\\/g, '/');
+                const targetPath = path.resolve(destinationRoot, normalizedName);
+                const relativePath = path.relative(destinationRoot, targetPath);
+
+                if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+                    closeAndReject(new Error(`Illegal entry path: ${entry.fileName}`));
+                    return;
+                }
+
+                if (normalizedName.endsWith('/')) {
+                    fs.promises.mkdir(targetPath, { recursive: true })
+                        .then(readNextEntry)
+                        .catch(closeAndReject);
+                    return;
+                }
+
+                fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
+                    .then(() => {
+                        zipfile.openReadStream(entry, (streamError, readStream) => {
+                            if (streamError || !readStream) {
+                                closeAndReject(streamError ?? new Error('Unable to read zip entry stream'));
+                                return;
+                            }
+
+                            const writeStream = fs.createWriteStream(targetPath);
+                            pipeline(readStream, writeStream)
+                                .then(async () => {
+                                    const mode = (entry.externalFileAttributes >>> 16) & 0o777;
+                                    if (mode) {
+                                        try {
+                                            await fs.promises.chmod(targetPath, mode);
+                                        } catch {
+                                            // Ignore chmod failures on unsupported platforms
+                                        }
+                                    }
+                                    readNextEntry();
+                                })
+                                .catch(closeAndReject);
+                        });
+                    })
+                    .catch(closeAndReject);
+            });
+        });
+    });
 }

@@ -1,4 +1,4 @@
-import { Impit } from 'impit';
+import { ProxyAgent, fetch } from 'undici';
 
 export class InvalidIP extends Error {}
 export class InvalidProxy extends Error {}
@@ -79,14 +79,14 @@ export async function publicIP(proxy?: string): Promise<string> {
     ];
 
     const errors = [];
+    const dispatcher = proxy ? new ProxyAgent(proxy) : undefined;
 
     for (const url of URLS) {
         try {
-            const impit = new Impit({
-                proxyUrl: proxy,
-                timeout: 5000,
-            })
-            const response = await impit.fetch(url);
+            const response = await fetch(url, {
+                dispatcher,
+                signal: AbortSignal.timeout(5000),
+            });
 
             if (!response.ok) {
                 continue;

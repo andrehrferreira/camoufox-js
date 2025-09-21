@@ -24,9 +24,15 @@ export async function NewBrowser<UserDataDir extends string | false = false, Ret
     let virtualDisplay: VirtualDisplay | null = null;
 
     if (headless === 'virtual') {
-        virtualDisplay = new VirtualDisplay(debug);
-        launch_options['virtual_display'] = virtualDisplay.get();
-        launch_options.headless = false;
+        // Virtual display is only needed on Linux
+        if (process.platform === 'linux') {
+            virtualDisplay = new VirtualDisplay(debug);
+            launch_options['virtual_display'] = virtualDisplay.get();
+            launch_options.headless = false;
+        } else {
+            // On Windows/Mac, virtual display is not needed, just use headless
+            launch_options.headless = true;
+        }
     } else {
         launch_options.headless ||= headless;
     }
