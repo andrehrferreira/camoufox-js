@@ -1,7 +1,7 @@
 # camoufox-js-extra
 
 This is the JavaScript client for Camoufox. It is a port of the Python wrapper (doesn't call the original Python scripts).
-> **Note (v0.6.2)**: Windows support fixes have been included in this version. Check the installation flow update in [src/pkgman.ts](src/pkgman.ts#L444).
+> **Note (v0.6.3)**: Windows support fixes have been included in this version. Check the installation flow update in [src/pkgman.ts](src/pkgman.ts#L444).
 
 ## Installation
 
